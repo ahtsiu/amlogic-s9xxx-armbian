@@ -1,0 +1,57 @@
+name: Build H618 kernel (i2c runtime-PM pin)
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: "unifreq linux-6.18.y tag (e.g. 6.18.59)"
+        required: true
+        default: "6.18.59"
+
+env:
+  TZ: Etc/UTC
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show custom patches
+        run: |
+          find kernel-patch -type f -print
+          head -20 kernel-patch/linux-6.18.y/*.patch
+
+      - name: Compile the kernel
+        uses: ahtsiu/amlogic-s9xxx-armbian@main
+        with:
+          build_target: kernel
+          kernel_source: unifreq
+          kernel_version: ${{ inputs.kernel_version }}
+          kernel_auto: "false"
+          kernel_package: all
+          kernel_sign: -ophub
+          kernel_toolchain: gcc
+          config_flavor: stable
+          kernel_patch: kernel-patch
+          auto_patch: "true"
+          delete_source: "true"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List output
+        if: always()
+        run: |
+          ls -lhR compile-kernel/output || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ inputs.kernel_version }}
+          path: compile-kernel/output/**
+          if-no-files-found: warn
+          retention-days: 14
