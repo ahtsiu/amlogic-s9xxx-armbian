@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ahtsiu <ahtsiu@users.noreply.github.com>
+Date: Wed, 5 Nov 2026 12:00:00 +0800
+Subject: [PATCH] i2c: mv64xxx: pin controller active to break runtime-PM deadlock
+
+On Allwinner boards where the PMIC sits on the r_i2c bus (e.g. H618 with
+AXP313A), a CPU DVFS transition deadlocks: cpufreq holds clk_prepare_lock
+while writing the PMIC voltage, the I2C host resume path needs the same
+lock, and the MMC runtime suspend worker waits on it too. The controller
+ends up wedged ("I2C bus locked") and CPU0 stops answering NMIs.
+
+Keep the controller runtime-resumed for as long as the driver is bound,
+which removes the resume/suspend path that participates in the deadlock.
+Same approach as Armbian's drv-i2c-busses-mv64xxx-pin-runtime-pm patch.
+
+Signed-off-by: ahtsiu <ahtsiu@users.noreply.github.com>
+---
+ drivers/i2c/busses/i2c-mv64xxx.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+--- a/drivers/i2c/busses/i2c-mv64xxx.c
++++ b/drivers/i2c/busses/i2c-mv64xxx.c
+@@ -149,6 +149,7 @@
+ 	bool			clk_n_base_0;
+ 	struct i2c_bus_recovery_info	rinfo;
+ 	bool			atomic;
++	bool			rtpm_pinned;
+ };
+ 
+ static struct mv64xxx_i2c_regs mv64xxx_i2c_regs_mv64xxx = {
+@@ -1045,6 +1046,13 @@
+ 	pm_runtime_set_autosuspend_delay(&pd->dev, MSEC_PER_SEC);
+ 	pm_runtime_use_autosuspend(&pd->dev);
+ 	pm_runtime_enable(&pd->dev);
++	/* Pin device active while bound to avoid circular PM deadlock */
++	rc = pm_runtime_resume_and_get(&pd->dev);
++	if (rc < 0) {
++		dev_warn(&pd->dev, "failed to resume during probe: %d\n", rc);
++		goto exit_disable_pm;
++	}
++	drv_data->rtpm_pinned = true;
+ 	if (!pm_runtime_enabled(&pd->dev)) {
+ 		rc = mv64xxx_i2c_runtime_resume(&pd->dev);
+ 		if (rc)
+@@ -1069,6 +1077,8 @@
+ exit_free_irq:
+ 	free_irq(drv_data->irq, drv_data);
+ exit_disable_pm:
++	if (drv_data->rtpm_pinned)
++		pm_runtime_put_noidle(&pd->dev);
+ 	pm_runtime_disable(&pd->dev);
+ 	if (!pm_runtime_status_suspended(&pd->dev))
+ 		mv64xxx_i2c_runtime_suspend(&pd->dev);
+@@ -1083,6 +1093,8 @@
+ 
+ 	i2c_del_adapter(&drv_data->adapter);
+ 	free_irq(drv_data->irq, drv_data);
++	if (drv_data->rtpm_pinned)
++		pm_runtime_put_noidle(&pd->dev);
+ 	pm_runtime_disable(&pd->dev);
+ 	if (!pm_runtime_status_suspended(&pd->dev))
+ 		mv64xxx_i2c_runtime_suspend(&pd->dev);
