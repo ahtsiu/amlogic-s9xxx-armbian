@@ -23,7 +23,7 @@ jobs:
       - name: Show custom patches
         run: |
           find kernel-patch -type f -print
-          head -20 kernel-patch/linux-6.18.y/*.patch
+          head -12 kernel-patch/linux-6.18.y/*.patch
 
       - name: Compile the kernel
         uses: ahtsiu/amlogic-s9xxx-armbian@main
@@ -31,6 +31,7 @@ jobs:
           build_target: kernel
           kernel_source: unifreq
           kernel_version: ${{ inputs.kernel_version }}
+          auto_kernel: "false"
           kernel_auto: "false"
           kernel_package: all
           kernel_sign: -ophub
@@ -42,16 +43,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: List output
+      - name: Collect output
         if: always()
         run: |
-          ls -lhR compile-kernel/output || true
+          echo "output path: ${PACKAGED_OUTPUTPATH}"
+          mkdir -p dist
+          if [ -d "${PACKAGED_OUTPUTPATH}" ]; then
+            cp -v "${PACKAGED_OUTPUTPATH}"/*.tar.gz dist/ || true
+          fi
+          ls -lh dist || true
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kernel-${{ inputs.kernel_version }}
-          path: compile-kernel/output/**
+          path: dist/*.tar.gz
           if-no-files-found: warn
           retention-days: 14
