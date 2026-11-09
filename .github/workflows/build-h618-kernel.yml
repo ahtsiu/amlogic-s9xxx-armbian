@@ -1,4 +1,4 @@
-name: Build H618 kernel (i2c runtime-PM pin)
+name: Build H618 kernel (clean / patched)
 
 on:
   workflow_dispatch:
@@ -22,8 +22,11 @@ jobs:
 
       - name: Show custom patches
         run: |
-          find kernel-patch -type f -print
-          head -12 kernel-patch/linux-6.18.y/*.patch
+          find kernel-patch -type f -print || true
+          for f in kernel-patch/linux-6.18.y/*.patch; do
+            [ -e "$f" ] && { echo "---- $f"; head -12 "$f"; }
+          done
+          echo "patch step done"
 
       - name: Compile the kernel
         uses: ahtsiu/amlogic-s9xxx-armbian@main
